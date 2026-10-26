@@ -12,6 +12,16 @@ const AudioManager = (() => {
         }
     } catch (e) {}
 
+    // One shared context: browsers cap open contexts (~6 in Chrome) and start them suspended
+    let sharedCtx = null;
+    function getAudioContext() {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return null;
+        if (!sharedCtx || sharedCtx.state === 'closed') sharedCtx = new AudioCtx();
+        if (sharedCtx.state === 'suspended') sharedCtx.resume().catch(() => {});
+        return sharedCtx;
+    }
+
     function isSoundEnabled() {
         return soundEnabled;
     }
@@ -30,9 +40,8 @@ const AudioManager = (() => {
     function playSound(type) {
         if (!soundEnabled) return;
         try {
-            const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            if (!AudioCtx) return;
-            const ctx = new AudioCtx();
+            const ctx = getAudioContext();
+            if (!ctx) return;
             const now = ctx.currentTime;
 
             if (type === 'correct') {
@@ -90,28 +99,105 @@ const AudioManager = (() => {
                     osc.stop(now + (idx * 0.1) + 0.5);
                 });
             }
-        } catch (e) {}
+        } catch (e) {
+            console.warn('Sound effect failed:', e);
+        }
+    }
+
+    // ---- Text-to-speech ----
+    const ttsSupported = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
+    let voices = [];
+    let speakTimer = null;
+    let currentUtterance = null; // keep a reference, Chrome may garbage-collect it mid-speech
+    let warnedNoVoice = false;
+
+    function loadVoices() {
+        if (!ttsSupported) return;
+        voices = window.speechSynthesis.getVoices() || [];
+    }
+    if (ttsSupported) {
+        loadVoices();
+        if (typeof window.speechSynthesis.addEventListener === 'function') {
+            window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
+        } else {
+            window.speechSynthesis.onvoiceschanged = loadVoices;
+        }
+    }
+
+    function pickVoice() {
+        return voices.find(v => v.lang === 'en-US')
+            || voices.find(v => v.lang === 'en-GB')
+            || voices.find(v => /^en[-_]/i.test(v.lang) || v.lang === 'en')
+            || null;
+    }
+
+    function notify(msg) {
+        if (typeof showToast === 'function') showToast(msg);
+        else console.warn(msg);
+    }
+
+    function isSpeechSupported() {
+        return ttsSupported;
     }
 
     /**
      * Pronounce English text using Web Speech API
      */
     function speak(text, rate = 0.9) {
-        if (!('speechSynthesis' in window)) return;
-        try {
-            window.speechSynthesis.cancel();
-            const clean = text.replace(/_+/g, 'blank').trim();
-            const utter = new SpeechSynthesisUtterance(clean);
-            utter.lang = 'en-US';
-            utter.rate = rate;
-            window.speechSynthesis.speak(utter);
-        } catch (e) {}
+        if (!ttsSupported) {
+            notify('Speech is not supported in this browser.');
+            return false;
+        }
+        const clean = String(text || '').replace(/_+/g, 'blank').trim();
+        if (!clean) return false;
+
+        const synth = window.speechSynthesis;
+        clearTimeout(speakTimer);
+
+        const run = () => {
+            try {
+                if (synth.paused) synth.resume();
+                loadVoices();
+                const utter = new SpeechSynthesisUtterance(clean);
+                const voice = pickVoice();
+                if (voice) {
+                    utter.voice = voice;
+                    utter.lang = voice.lang;
+                } else {
+                    utter.lang = 'en-US';
+                    if (voices.length === 0 && !warnedNoVoice) {
+                        warnedNoVoice = true;
+                        notify('No speech voices found. Install a system TTS voice (e.g. speech-dispatcher / espeak-ng on Linux).');
+                    }
+                }
+                utter.rate = rate;
+                utter.onerror = (ev) => {
+                    if (ev.error && ev.error !== 'canceled' && ev.error !== 'interrupted') {
+                        notify('Speech failed: ' + ev.error);
+                    }
+                };
+                currentUtterance = utter;
+                synth.speak(utter);
+            } catch (e) {
+                console.warn('Speech failed:', e);
+            }
+        };
+
+        // cancel() immediately followed by speak() is dropped by Chrome, so give it a tick
+        if (synth.speaking || synth.pending) {
+            synth.cancel();
+            speakTimer = setTimeout(run, 80);
+        } else {
+            run();
+        }
+        return true;
     }
 
     return {
         isSoundEnabled,
         toggleSound,
         playSound,
-        speak
+        speak,
+        isSpeechSupported
     };
 })();

@@ -125,14 +125,13 @@ lexiflow/
 ├── js/
 │   ├── default-data.js      # Built-in 520 curated academic words across 10 units
 │   ├── storage.js           # Multi-language memory manager & localStorage CRUD
+│   ├── translations.js      # Background translation + cache for non-Turkish language profiles
 │   ├── dictionary-api.js    # Smart auto-lookup for definitions, audio, images & translation
 │   ├── speech.js            # Web Speech API TTS & Web Audio game sound synthesizer
 │   ├── quiz-engine.js       # Game loop, question generators, streak & mistake review
 │   └── app.js               # Application router, UI listeners & keyboard controller
 ├── data/
 │   └── vocabulary.json      # Standalone JSON export of the complete lexicon
-├── dist/
-│   └── standalone.html      # Optional single-file offline compilation
 ├── vocabulary_guide.md      # Printable markdown study guide
 ├── LICENSE                  # MIT License
 └── README.md                # Project documentation

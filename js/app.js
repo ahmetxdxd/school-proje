@@ -17,6 +17,9 @@ function initApp() {
     updateHeaderStats();
     initAddWordModal();
     initKeyboardShortcuts();
+    initSpeakButtons();
+    initSoundButton();
+    initTranslations();
 }
 
 /**
@@ -68,11 +71,14 @@ function initLanguageSelector() {
         const newLang = e.target.value;
         StorageManager.setActiveLanguage(newLang);
         showToast(`Switched profile to ${langs[newLang].name}`);
+        // A running session belongs to the previous language profile
+        if (QuizEngine.getState().active) {
+            QuizEngine.endSession();
+            showQuizSetupScreen();
+        }
         renderVocabularyGrid();
         updateHeaderStats();
-        if (QuizEngine.getState().active) {
-            QuizEngine.startSession();
-        }
+        startTranslationsIfNeeded();
     });
 }
 
@@ -179,8 +185,9 @@ function renderVocabularyGrid() {
             `;
         }
 
-        const displayTr = activeTranslationsVisible ? escapeHtml(item.tr) : reverseText(item.tr);
-        const trClass = activeTranslationsVisible ? 'tr-content' : 'tr-content reversed';
+        const hasTr = !!item.tr;
+        const displayTr = !hasTr ? '⏳ translation pending' : (activeTranslationsVisible ? escapeHtml(item.tr) : reverseText(item.tr));
+        const trClass = (activeTranslationsVisible || !hasTr) ? 'tr-content' : 'tr-content reversed';
 
         card.innerHTML = `
             <div class="card-top">
@@ -190,7 +197,7 @@ function renderVocabularyGrid() {
                     <span class="pos-tag">${escapeHtml(item.pos)}</span>
                 </div>
                 <div class="card-actions-row">
-                    <button class="card-icon-btn" onclick="AudioManager.speak('${item.word.replace(/'/g, "\\'")}')" title="Pronounce word">🔊</button>
+                    <button class="card-icon-btn" data-speak="${escapeHtml(item.word)}" title="Pronounce word">🔊</button>
                     <button class="card-icon-btn btn-delete" onclick="handleDeleteWord(${item.id})" title="Delete word">🗑️</button>
                 </div>
             </div>
@@ -206,14 +213,96 @@ function renderVocabularyGrid() {
 
             <div class="tr-footer">
                 <span class="tr-label">Meaning:</span>
-                <div class="tr-interactive" onclick="toggleSingleTr(this, '${escapeHtml(item.tr.replace(/'/g, "\\'"))}')" title="Click to flip text">
+                <div class="tr-interactive" ${hasTr ? `data-tr="${escapeHtml(item.tr)}"` : ''} title="Click to flip text">
                     <span class="${trClass}">${displayTr}</span>
-                    <span class="flip-hint">⟲ flip</span>
+                    ${hasTr ? '<span class="flip-hint">⟲ flip</span>' : ''}
                 </div>
             </div>
         `;
         grid.appendChild(card);
     });
+}
+
+/**
+ * Delegated handlers (avoid inline-JS quoting bugs with text containing quotes)
+ */
+function initSpeakButtons() {
+    document.addEventListener('click', (e) => {
+        const speakBtn = e.target.closest('[data-speak]');
+        if (speakBtn) {
+            AudioManager.speak(speakBtn.dataset.speak, parseFloat(speakBtn.dataset.rate) || 0.9);
+            return;
+        }
+        const trBox = e.target.closest('.tr-interactive');
+        if (trBox) toggleSingleTr(trBox);
+    });
+}
+
+function initSoundButton() {
+    const btn = document.getElementById('soundToggleBtn');
+    if (!btn) return;
+    btn.innerText = AudioManager.isSoundEnabled() ? '🔊' : '🔇';
+    btn.onclick = () => {
+        const on = AudioManager.toggleSound();
+        btn.innerText = on ? '🔊' : '🔇';
+        if (on) AudioManager.playSound('click');
+    };
+}
+
+/**
+ * Non-Turkish profiles: background translation with progress bar
+ */
+function initTranslations() {
+    TranslationService.onChange((lang, progress) => {
+        if (lang !== StorageManager.getActiveLanguage()) return;
+        renderTranslationBar(progress);
+        renderVocabularyGridThrottled();
+    });
+    startTranslationsIfNeeded();
+}
+
+function startTranslationsIfNeeded() {
+    renderTranslationBar(TranslationService.getProgress());
+    if (StorageManager.getActiveLanguage() !== 'tr') {
+        TranslationService.run(StorageManager.getActiveLanguage());
+    }
+}
+
+function retryTranslations() {
+    TranslationService.run(StorageManager.getActiveLanguage());
+}
+
+let gridRefreshTimer = null;
+function renderVocabularyGridThrottled() {
+    if (gridRefreshTimer) return;
+    gridRefreshTimer = setTimeout(() => {
+        gridRefreshTimer = null;
+        const listView = document.getElementById('listView');
+        if (listView && listView.style.display !== 'none') renderVocabularyGrid();
+    }, 1500);
+}
+
+function renderTranslationBar(p) {
+    const bar = document.getElementById('translationBar');
+    if (!bar) return;
+    if (StorageManager.getActiveLanguage() === 'tr' || p.total === 0) {
+        bar.style.display = 'none';
+        return;
+    }
+    const langName = StorageManager.SUPPORTED_LANGUAGES[p.lang].label;
+    const pct = Math.round((p.done / p.total) * 100);
+    let text;
+    if (p.running) text = `🌐 Translating to ${langName}… ${p.done} / ${p.total}`;
+    else if (p.done >= p.total) text = `✅ All ${p.total} words translated to ${langName}`;
+    else if (p.status === 'quota') text = `⚠️ Free translation quota reached (${p.done} / ${p.total}). Progress is saved: try again later.`;
+    else if (p.status === 'offline') text = `⚠️ Could not reach the translation service (${p.done} / ${p.total}). Check your connection.`;
+    else text = `🌐 ${p.done} / ${p.total} words translated to ${langName}`;
+
+    bar.style.display = 'flex';
+    document.getElementById('translationStatusText').innerText = text;
+    document.getElementById('translationProgressFill').style.width = pct + '%';
+    const retry = document.getElementById('translationRetryBtn');
+    retry.style.display = (!p.running && p.done < p.total) ? 'inline-flex' : 'none';
 }
 
 function handleSearch(query) {
@@ -228,7 +317,9 @@ function setUnitFilter(unit, btn) {
     renderVocabularyGrid();
 }
 
-function toggleSingleTr(container, normalTr) {
+function toggleSingleTr(container) {
+    const normalTr = container.dataset.tr;
+    if (!normalTr) return;
     const textEl = container.querySelector('.tr-content');
     const hintEl = container.querySelector('.flip-hint');
 
@@ -377,11 +468,12 @@ function handleDeleteWord(wordId) {
 }
 
 function handleResetVocabulary() {
-    if (confirm('Reset vocabulary to default 520 words? Any custom words added will be restored to standard list.')) {
+    if (confirm('Reset vocabulary to the default word list? Custom words you added will be removed.')) {
         StorageManager.resetVocabulary();
         renderVocabularyGrid();
         updateHeaderStats();
-        showToast('Vocabulary reset to default 520 words.');
+        showToast('Vocabulary reset to default word list.');
+        startTranslationsIfNeeded();
     }
 }
 
@@ -542,13 +634,13 @@ function submitQuizAnswer() {
                     <div class="feedback-text-group">
                         <h3>Awesome! Correct Answer</h3>
                         <div class="feedback-card-detail">
-                            <strong>${escapeHtml(result.targetWord.word)}</strong> <span style="color:var(--accent-pos)">${escapeHtml(result.targetWord.pos)}</span> &bull; <span>${escapeHtml(result.targetWord.tr)}</span>
+                            <strong>${escapeHtml(result.targetWord.word)}</strong> <span style="color:var(--accent-pos)">${escapeHtml(result.targetWord.pos)}</span>${result.targetWord.tr ? ` &bull; <span>${escapeHtml(result.targetWord.tr)}</span>` : ''}
                             <div class="detail-sentence">"${result.highlightedExample}"</div>
                         </div>
                     </div>
                 </div>
                 <div class="feedback-actions">
-                    <button class="duo-icon-btn" onclick="AudioManager.speak('${result.targetWord.word.replace(/'/g, "\\'")}')" title="Pronounce">🔊</button>
+                    <button class="duo-icon-btn" data-speak="${escapeHtml(result.targetWord.word)}" title="Pronounce">🔊</button>
                     <button class="duo-btn duo-btn-primary duo-btn-lg" onclick="advanceNextQuizQuestion()">CONTINUE ➔</button>
                 </div>
             </div>
@@ -565,7 +657,7 @@ function submitQuizAnswer() {
                         <h3>Incorrect!</h3>
                         <div class="correct-answer-banner">Correct Answer: <strong>${escapeHtml(result.correctText)}</strong></div>
                         <div class="feedback-card-detail">
-                            <div><strong>${escapeHtml(result.targetWord.word)}</strong> <span style="color:var(--accent-pos)">${escapeHtml(result.targetWord.pos)}</span> &bull; <span>${escapeHtml(result.targetWord.tr)}</span></div>
+                            <div><strong>${escapeHtml(result.targetWord.word)}</strong> <span style="color:var(--accent-pos)">${escapeHtml(result.targetWord.pos)}</span>${result.targetWord.tr ? ` &bull; <span>${escapeHtml(result.targetWord.tr)}</span>` : ''}</div>
                             <div style="margin-top:4px; font-size:0.88rem; color:var(--text-muted)"><strong>Definition:</strong> ${escapeHtml(result.targetWord.definition)}</div>
                             <div class="detail-sentence"><strong>Example:</strong> "${result.highlightedExample}"</div>
                             <div style="margin-top:6px; font-size:0.8rem; opacity:0.85;">💡 Added to your mistake review queue for focused practice.</div>
@@ -573,7 +665,7 @@ function submitQuizAnswer() {
                     </div>
                 </div>
                 <div class="feedback-actions">
-                    <button class="duo-icon-btn" onclick="AudioManager.speak('${result.targetWord.word.replace(/'/g, "\\'")}')" title="Pronounce">🔊</button>
+                    <button class="duo-icon-btn" data-speak="${escapeHtml(result.targetWord.word)}" title="Pronounce">🔊</button>
                     <button class="duo-btn duo-btn-danger duo-btn-lg" onclick="advanceNextQuizQuestion()">GOT IT, CONTINUE ➔</button>
                 </div>
             </div>
@@ -638,10 +730,10 @@ function showQuizResultsScreen() {
                 <div>
                     <span class="res-word-title">${escapeHtml(item.word.word)}</span>
                     <span style="font-size:0.8rem; color:var(--accent-pos)">${escapeHtml(item.word.pos)}</span>
-                    <div class="res-word-tr">${escapeHtml(item.word.tr)} &bull; <em style="font-size:0.8rem">"${escapeHtml(item.word.example)}"</em></div>
+                    <div class="res-word-tr">${item.word.tr ? escapeHtml(item.word.tr) + ' &bull; ' : ''}<em style="font-size:0.8rem">"${escapeHtml(item.word.example)}"</em></div>
                 </div>
             </div>
-            <button class="duo-icon-btn" onclick="AudioManager.speak('${item.word.word.replace(/'/g, "\\'")}')" title="Pronounce">🔊</button>
+            <button class="duo-icon-btn" data-speak="${escapeHtml(item.word.word)}" title="Pronounce">🔊</button>
         `;
         container.appendChild(row);
     });
@@ -676,6 +768,7 @@ function initKeyboardShortcuts() {
                 const idx = parseInt(e.key, 10) - 1;
                 selectQuizOption(idx);
             } else if (e.key === 'Enter') {
+                e.preventDefault();
                 const qState = QuizEngine.getState();
                 if (!qState.answered) {
                     submitQuizAnswer();

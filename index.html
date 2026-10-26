@@ -39,7 +39,7 @@
                     </button>
 
                     <button class="btn" onclick="toggleAllTranslations()" id="toggleTrBtn">
-                        🔄 Hide Meanings
+                        🔄 Show All Meanings
                     </button>
 
                     <button class="btn" onclick="handleExportJSON()" title="Export vocabulary dataset as JSON">
@@ -91,6 +91,11 @@
              VIEW 1: VOCABULARY EXPLORER (CARD LIST)
              ========================================== -->
         <div id="listView">
+            <div class="translation-bar" id="translationBar" style="display: none;">
+                <span id="translationStatusText"></span>
+                <div class="trans-progress"><div id="translationProgressFill"></div></div>
+                <button class="btn" id="translationRetryBtn" onclick="retryTranslations()" style="display: none;">🌐 Translate missing words</button>
+            </div>
             <section class="controls-card">
                 <div class="search-row">
                     <div class="search-input-wrap">
@@ -213,7 +218,7 @@
                     <div class="quiz-status-pill" id="quizCounterVal" title="Question progress">
                         1 / 10
                     </div>
-                    <button class="duo-icon-btn" onclick="AudioManager.toggleSound(); this.innerText = AudioManager.isSoundEnabled() ? '🔊' : '🔇';" title="Toggle Sound">
+                    <button class="duo-icon-btn" id="soundToggleBtn" title="Toggle sound effects &amp; auto-play">
                         🔊
                     </button>
                 </div>
@@ -381,6 +386,7 @@
     <!-- Modular Script Imports -->
     <script src="js/default-data.js"></script>
     <script src="js/storage.js"></script>
+    <script src="js/translations.js"></script>
     <script src="js/dictionary-api.js"></script>
     <script src="js/speech.js"></script>
     <script src="js/quiz-engine.js"></script>

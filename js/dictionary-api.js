@@ -141,33 +141,34 @@ const DictionaryService = (() => {
     }
 
     /**
-     * Fetch relevant educational image for a word
-     * Tries Wikipedia summary thumbnail first (free, verified, public domain / CC)
-     * Then falls back to Unsplash photo
+     * Fetch a Wikipedia thumbnail for a word. Resolves to null when there is none
+     * (or when offline) so callers can fall back to a different question type.
      */
     async function fetchWordImage(rawWord) {
         const word = rawWord.trim().toLowerCase();
         if (!word) return null;
 
-        if (cache.images[word]) return cache.images[word];
+        if (word in cache.images) return cache.images[word];
 
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 4000);
         try {
             const wikiUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(word)}`;
-            const res = await fetch(wikiUrl);
+            const res = await fetch(wikiUrl, { signal: ctrl.signal });
             if (res.ok) {
                 const data = await res.json();
-                if (data.thumbnail && data.thumbnail.source) {
-                    const imgUrl = data.thumbnail.source;
-                    cache.images[word] = imgUrl;
-                    return imgUrl;
+                if (data.type !== 'disambiguation' && data.thumbnail && data.thumbnail.source) {
+                    cache.images[word] = data.thumbnail.source;
+                    return data.thumbnail.source;
                 }
             }
-        } catch (e) {}
-
-        // Fallback: high quality Unsplash photo source
-        const unsplashFallback = `https://images.unsplash.com/photo-1457369804613-52c61a468e7d?auto=format&fit=crop&w=600&q=80`;
-        cache.images[word] = unsplashFallback;
-        return unsplashFallback;
+            cache.images[word] = null; // definitively no image
+        } catch (e) {
+            // network error / timeout: do not cache, may work later
+        } finally {
+            clearTimeout(timer);
+        }
+        return null;
     }
 
     return {

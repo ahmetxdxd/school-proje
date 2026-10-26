@@ -34,12 +34,61 @@ const StorageManager = (() => {
         return `lexiflow_mistakes_${lang}`;
     }
 
+    // ---- Per-language translation cache (non-Turkish profiles only) ----
+    // The built-in dataset carries Turkish meanings only. Other languages keep the
+    // English fields and get their own `tr` meaning filled in from this cache.
+    function wordKey(word) {
+        return String(word || '').toLowerCase().trim();
+    }
+
+    function getTransCache(lang = getActiveLanguage()) {
+        try {
+            const raw = localStorage.getItem(`lexiflow_transcache_${lang}`);
+            if (raw) return JSON.parse(raw) || {};
+        } catch (e) {}
+        return {};
+    }
+
+    function saveTransCache(cache, lang = getActiveLanguage()) {
+        try {
+            localStorage.setItem(`lexiflow_transcache_${lang}`, JSON.stringify(cache));
+        } catch (e) {}
+    }
+
+    function seedVocabulary(lang) {
+        const initial = JSON.parse(JSON.stringify(DEFAULT_VOCABULARY));
+        if (lang !== 'tr') {
+            const cache = getTransCache(lang);
+            initial.forEach(w => {
+                w.tr = cache[wordKey(w.word)] || '';
+                w.trLang = lang;
+            });
+        }
+        return initial;
+    }
+
+    // Older builds copied the Turkish list into every language profile: blank those meanings
+    function migrateForeignMeanings(words, lang) {
+        if (lang === 'tr') return false;
+        const cache = getTransCache(lang);
+        let changed = false;
+        words.forEach(w => {
+            if (!w.custom && w.trLang !== lang) {
+                w.tr = cache[wordKey(w.word)] || '';
+                w.trLang = lang;
+                changed = true;
+            }
+        });
+        return changed;
+    }
+
     function getVocabulary(lang = getActiveLanguage()) {
         try {
             const raw = localStorage.getItem(getVocabularyKey(lang));
             if (raw) {
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed) && parsed.length > 0) {
+                    if (migrateForeignMeanings(parsed, lang)) saveVocabulary(parsed, lang);
                     return parsed;
                 }
             }
@@ -49,11 +98,27 @@ const StorageManager = (() => {
 
         // Initialize with default vocabulary
         if (typeof DEFAULT_VOCABULARY !== 'undefined' && Array.isArray(DEFAULT_VOCABULARY)) {
-            const initial = JSON.parse(JSON.stringify(DEFAULT_VOCABULARY));
+            const initial = seedVocabulary(lang);
             saveVocabulary(initial, lang);
             return initial;
         }
         return [];
+    }
+
+    // Fill empty meanings from { lowercasedWord: translation } without clobbering concurrent edits
+    function applyTranslations(map, lang = getActiveLanguage()) {
+        const vocab = getVocabulary(lang);
+        let changed = 0;
+        vocab.forEach(w => {
+            const t = map[wordKey(w.word)];
+            if (t && !w.tr) {
+                w.tr = t;
+                w.trLang = lang;
+                changed++;
+            }
+        });
+        if (changed) saveVocabulary(vocab, lang);
+        return changed;
     }
 
     function saveVocabulary(words, lang = getActiveLanguage()) {
@@ -107,7 +172,7 @@ const StorageManager = (() => {
 
     function resetVocabulary(lang = getActiveLanguage()) {
         if (typeof DEFAULT_VOCABULARY !== 'undefined') {
-            const initial = JSON.parse(JSON.stringify(DEFAULT_VOCABULARY));
+            const initial = seedVocabulary(lang);
             saveVocabulary(initial, lang);
             return initial;
         }
@@ -186,6 +251,9 @@ const StorageManager = (() => {
         setActiveLanguage,
         getVocabulary,
         saveVocabulary,
+        getTransCache,
+        saveTransCache,
+        applyTranslations,
         addWord,
         deleteWord,
         updateWord,

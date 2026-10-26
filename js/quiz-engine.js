@@ -31,6 +31,12 @@ const QuizEngine = (() => {
         image_match: { label: '🖼️ Visual Matching', desc: 'Match images and concepts to academic words' }
     };
 
+    function esc(str) {
+        return String(str == null ? '' : str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
     function shuffle(arr) {
         const copy = [...arr];
         for (let i = copy.length - 1; i > 0; i--) {
@@ -42,7 +48,7 @@ const QuizEngine = (() => {
 
     // Helper: Blank out target word in sentence cleanly without regex escape bugs
     function blankSentence(sentence, word) {
-        if (!sentence || !word) return { display: sentence || '', raw: sentence || '' };
+        if (!sentence || !word) return { display: esc(sentence), raw: sentence || '' };
         const tokens = sentence.split(/(\s+|[.,!?;:'"()]+)/);
         const targetLower = word.toLowerCase().trim();
         let replaced = false;
@@ -54,16 +60,16 @@ const QuizEngine = (() => {
                     return '<span class="sentence-blank">__________</span>';
                 }
             }
-            return token;
+            return esc(token);
         }).join('');
 
         if (replaced) return { display: result, raw: sentence };
-        return { display: sentence + ' <span class="sentence-blank">__________</span>', raw: sentence };
+        return { display: esc(sentence) + ' <span class="sentence-blank">__________</span>', raw: sentence };
     }
 
     // Helper: Highlight target word in sentence
     function highlightSentence(sentence, word) {
-        if (!sentence || !word) return sentence || '';
+        if (!sentence || !word) return esc(sentence);
         const tokens = sentence.split(/(\s+|[.,!?;:'"()]+)/);
         const targetLower = word.toLowerCase().trim();
         let replaced = false;
@@ -72,10 +78,10 @@ const QuizEngine = (() => {
             if (!replaced && clean.length >= 3 && targetLower.length >= 3) {
                 if (clean === targetLower || (clean.startsWith(targetLower) && clean.length <= targetLower.length + 4) || (targetLower.startsWith(clean) && targetLower.length <= clean.length + 3)) {
                     replaced = true;
-                    return '<span class="highlight-word">' + token + '</span>';
+                    return '<span class="highlight-word">' + esc(token) + '</span>';
                 }
             }
-            return token;
+            return esc(token);
         }).join('');
     }
 
@@ -171,7 +177,8 @@ const QuizEngine = (() => {
         // Choose question type
         let qType = state.selectedType;
         if (qType === 'mixed') {
-            const availableTypes = ['sentence', 'def_to_word', 'word_to_def', 'meaning', 'listening'];
+            const availableTypes = ['sentence', 'def_to_word', 'word_to_def', 'listening'];
+            if (targetWord.tr) availableTypes.push('meaning');
             if (targetWord.derivatives && targetWord.derivatives.length > 0) {
                 availableTypes.push('derivatives');
             }
@@ -180,15 +187,40 @@ const QuizEngine = (() => {
             qType = availableTypes[Math.floor(Math.random() * availableTypes.length)];
         }
 
-        // Gather 3 distractors
-        const otherWords = allVocab.filter(w => w.word.toLowerCase() !== targetWord.word.toLowerCase());
+        // Visual questions need a real image; otherwise fall back to a text question
+        let imgUrl = null;
+        if (qType === 'image_match') {
+            imgUrl = targetWord.imageUrl || await DictionaryService.fetchWordImage(targetWord.word);
+            if (!imgUrl) qType = 'sentence';
+        }
+
+        // A word that has no meaning in the active language yet cannot be asked as a translation
+        if (qType === 'meaning' && !targetWord.tr) qType = 'def_to_word';
+
+        // Gather 3 distractors (meaning questions need distinct, non-empty translations)
+        let otherWords = allVocab.filter(w => w.word.toLowerCase() !== targetWord.word.toLowerCase());
+        if (qType === 'meaning') {
+            const seenTr = new Set([targetWord.tr.trim().toLowerCase()]);
+            otherWords = otherWords.filter(w => {
+                const t = (w.tr || '').trim().toLowerCase();
+                if (!t || seenTr.has(t)) return false;
+                seenTr.add(t);
+                return true;
+            });
+        }
         const sameUnit = otherWords.filter(w => w.unit === targetWord.unit);
         let distractors = [];
-        if (sameUnit.length >= 3) {
+        if (sameUnit.length >= 3 && qType !== 'meaning') {
             distractors = shuffle(sameUnit).slice(0, 3);
         } else {
             distractors = shuffle(otherWords).slice(0, 3);
         }
+
+        if (distractors.length < 3) {
+            const extra = shuffle(otherWords.filter(w => !distractors.includes(w)));
+            distractors = distractors.concat(extra).slice(0, 3);
+        }
+        while (distractors.length < 3) distractors.push(targetWord);
 
         let qData = {
             type: qType,
@@ -209,11 +241,11 @@ const QuizEngine = (() => {
             qData.promptHtml = `
                 <div class="prompt-sentence">
                     "${blanked.display}"
-                    <button class="prompt-audio-btn" onclick="AudioManager.speak('${targetWord.example.replace(/'/g, "\\'")}')" title="Listen to sentence">🔊</button>
+                    <button class="prompt-audio-btn" data-speak="${esc(targetWord.example)}" title="Listen to sentence">🔊</button>
                 </div>
                 <div class="prompt-clue-bar">
-                    <span class="pos-pill">${targetWord.pos}</span>
-                    <span class="clue-text">Meaning clue: <strong>${targetWord.tr}</strong></span>
+                    <span class="pos-pill">${esc(targetWord.pos)}</span>
+                    ${targetWord.tr ? `<span class="clue-text">Meaning clue: <strong>${esc(targetWord.tr)}</strong></span>` : ''}
                 </div>
             `;
             qData.correctText = targetWord.word;
@@ -233,19 +265,20 @@ const QuizEngine = (() => {
             if (parts.length === 2) {
                 const pType = parts[0].trim();
                 correctVal = parts[1].trim();
-                if (pType.includes('n')) formName = 'noun (isim) form';
-                else if (pType.includes('adj')) formName = 'adjective (sıfat) form';
-                else if (pType.includes('adv')) formName = 'adverb (zarf) form';
-                else if (pType.includes('v')) formName = 'verb (fiil) form';
+                const tr = StorageManager.getActiveLanguage() === 'tr';
+                if (pType.includes('adj')) formName = tr ? 'adjective (sıfat) form' : 'adjective form';
+                else if (pType.includes('adv')) formName = tr ? 'adverb (zarf) form' : 'adverb form';
+                else if (pType.includes('n')) formName = tr ? 'noun (isim) form' : 'noun form';
+                else if (pType.includes('v')) formName = tr ? 'verb (fiil) form' : 'verb form';
                 else formName = `${pType} form`;
             }
 
             qData.instruction = `What is the ${formName} of the word "${targetWord.word}"?`;
             qData.promptHtml = `
                 <div class="prompt-word-center">
-                    <div class="prompt-big-word">${targetWord.word}</div>
-                    <span class="pos-pill">${targetWord.pos}</span>
-                    <div class="prompt-sub-meaning">Base Meaning: "${targetWord.tr}"</div>
+                    <div class="prompt-big-word">${esc(targetWord.word)}</div>
+                    <span class="pos-pill">${esc(targetWord.pos)}</span>
+                    ${targetWord.tr ? `<div class="prompt-sub-meaning">Base Meaning: "${esc(targetWord.tr)}"</div>` : ''}
                 </div>
             `;
             qData.correctText = correctVal;
@@ -261,11 +294,11 @@ const QuizEngine = (() => {
             qData.instruction = 'Which academic word matches this definition?';
             qData.promptHtml = `
                 <div class="prompt-sentence">
-                    "${targetWord.definition}"
+                    "${esc(targetWord.definition)}"
                 </div>
                 <div class="prompt-clue-bar">
-                    <span class="pos-pill">${targetWord.pos}</span>
-                    <span class="clue-text">Academic Unit: <strong>${targetWord.unit}</strong></span>
+                    <span class="pos-pill">${esc(targetWord.pos)}</span>
+                    <span class="clue-text">Academic Unit: <strong>${esc(targetWord.unit)}</strong></span>
                 </div>
             `;
             qData.correctText = targetWord.word;
@@ -280,9 +313,9 @@ const QuizEngine = (() => {
             qData.instruction = `Select the accurate English definition for:`;
             qData.promptHtml = `
                 <div class="prompt-word-center">
-                    <div class="prompt-big-word">${targetWord.word}</div>
-                    <span class="pos-pill">${targetWord.pos}</span>
-                    <button class="prompt-audio-btn" onclick="AudioManager.speak('${targetWord.word.replace(/'/g, "\\'")}')" title="Listen">🔊</button>
+                    <div class="prompt-big-word">${esc(targetWord.word)}</div>
+                    <span class="pos-pill">${esc(targetWord.pos)}</span>
+                    <button class="prompt-audio-btn" data-speak="${esc(targetWord.word)}" title="Listen">🔊</button>
                 </div>
             `;
             qData.correctText = targetWord.definition;
@@ -298,11 +331,11 @@ const QuizEngine = (() => {
             qData.instruction = 'Listen carefully to the audio and choose the spoken word:';
             qData.promptHtml = `
                 <div class="prompt-listening-card">
-                    <button class="listening-play-btn" onclick="AudioManager.speak('${targetWord.word.replace(/'/g, "\\'")}', 0.85)">
+                    <button class="listening-play-btn" data-speak="${esc(targetWord.word)}" data-rate="0.85">
                         <span class="listen-icon">🔊</span>
                         <span class="listen-label">Play Spoken Word</span>
                     </button>
-                    <div class="listening-hint">Part of Speech: <strong>${targetWord.pos}</strong> &bull; Meaning: <em>${targetWord.tr}</em></div>
+                    <div class="listening-hint">Part of Speech: <strong>${esc(targetWord.pos)}</strong>${targetWord.tr ? ` &bull; Meaning: <em>${esc(targetWord.tr)}</em>` : ''}</div>
                 </div>
             `;
             qData.correctText = targetWord.word;
@@ -316,12 +349,11 @@ const QuizEngine = (() => {
         } else if (qType === 'image_match') {
             qData.badge = '🖼️ VISUAL VOCABULARY';
             qData.instruction = 'Which academic word corresponds to this concept / image?';
-            const imgUrl = targetWord.imageUrl || await DictionaryService.fetchWordImage(targetWord.word);
             qData.promptHtml = `
                 <div class="prompt-image-card">
-                    <img src="${imgUrl}" alt="${targetWord.word}" class="quiz-visual-img" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1457369804613-52c61a468e7d?auto=format&fit=crop&w=600&q=80';" />
+                    <img src="${esc(imgUrl)}" alt="" class="quiz-visual-img" onerror="this.style.display='none'" />
                     <div class="prompt-clue-bar" style="margin-top:10px;">
-                        <span class="pos-pill">${targetWord.pos}</span>
+                        <span class="pos-pill">${esc(targetWord.pos)}</span>
                         <span class="clue-text">Context: "${blankSentence(targetWord.example, targetWord.word).display}"</span>
                     </div>
                 </div>
@@ -339,10 +371,10 @@ const QuizEngine = (() => {
             qData.instruction = `What is the meaning of the word "${targetWord.word}"?`;
             qData.promptHtml = `
                 <div class="prompt-word-center">
-                    <div class="prompt-big-word">${targetWord.word}</div>
-                    <span class="pos-pill">${targetWord.pos}</span>
-                    <button class="prompt-audio-btn" onclick="AudioManager.speak('${targetWord.word.replace(/'/g, "\\'")}')" title="Listen">🔊</button>
-                    <div class="prompt-sub-meaning">Longman Definition: "${targetWord.definition}"</div>
+                    <div class="prompt-big-word">${esc(targetWord.word)}</div>
+                    <span class="pos-pill">${esc(targetWord.pos)}</span>
+                    <button class="prompt-audio-btn" data-speak="${esc(targetWord.word)}" title="Listen">🔊</button>
+                    <div class="prompt-sub-meaning">Longman Definition: "${esc(targetWord.definition)}"</div>
                 </div>
             `;
             qData.correctText = targetWord.tr;
@@ -410,6 +442,12 @@ const QuizEngine = (() => {
         };
     }
 
+    function endSession() {
+        state.active = false;
+        state.activeQuestion = null;
+        state.answered = false;
+    }
+
     function nextQuestion() {
         state.currentIndex++;
         state.answered = false;
@@ -441,6 +479,7 @@ const QuizEngine = (() => {
     return {
         QUESTION_TYPES,
         startSession,
+        endSession,
         getCurrentQuestion,
         submitAnswer,
         nextQuestion,
