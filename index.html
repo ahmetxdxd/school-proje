@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LexiFlow | Academic English Vocabulary & Gamified Practice Lab</title>
+    <meta name="description" content="LexiFlow is an interactive, gamified academic English vocabulary platform featuring Duolingo-style practice, audio pronunciation, derivatives, dictionary auto-fetch, and multi-language learning profiles.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/quiz.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Main Application Header -->
+        <header>
+            <div class="header-top">
+                <div class="brand-group">
+                    <div class="brand-logo-icon">🦉</div>
+                    <div class="brand-text">
+                        <h1>LexiFlow</h1>
+                        <p>Academic English Vocabulary &amp; Interactive Learning Platform</p>
+                    </div>
+                </div>
+
+                <div class="header-actions">
+                    <!-- Multi-Language Profile Selector -->
+                    <select id="langSelect" class="btn lang-selector" title="Switch Language Profile &amp; Memory">
+                        <!-- Populated dynamically -->
+                    </select>
+
+                    <button class="btn btn-accent" onclick="switchMode('quiz')">
+                        🦉 Practice Lab
+                    </button>
+
+                    <button class="btn btn-primary" id="openAddWordBtn">
+                        ➕ Add Word
+                    </button>
+
+                    <button class="btn" onclick="toggleAllTranslations()" id="toggleTrBtn">
+                        🔄 Hide Meanings
+                    </button>
+
+                    <button class="btn" onclick="handleExportJSON()" title="Export vocabulary dataset as JSON">
+                        📥 Export JSON
+                    </button>
+
+                    <button class="btn" onclick="toggleTheme()" id="themeToggleBtn">
+                        🌙 Dark
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stats Bar -->
+            <div class="stats-bar">
+                <div class="stat-item">
+                    <span>Total Words:</span>
+                    <strong id="totalWordsCount">520</strong>
+                </div>
+                <div class="stat-item">
+                    <span>Curated Units:</span>
+                    <strong>10 Thematic Academic Units</strong>
+                </div>
+                <div class="stat-item">
+                    <span>Lexicon Standards:</span>
+                    <strong>Longman Dictionary &amp; B2/C1 Academic Core</strong>
+                </div>
+                <div class="stat-item">
+                    <span>Practice Mode:</span>
+                    <strong>Duolingo-Style Gamified Engine</strong>
+                </div>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="app-nav-bar" id="appNavBar">
+            <button class="nav-tab active" id="tabList">
+                <span>📖</span>
+                <span>Vocabulary Explorer</span>
+                <span class="tab-badge" id="listCountBadge">520</span>
+            </button>
+            <button class="nav-tab duo-tab" id="tabQuiz">
+                <span>🦉</span>
+                <span>Practice Lab (Quiz Mode)</span>
+                <span class="tab-badge tab-pulse-badge">Live Interactive</span>
+            </button>
+        </nav>
+
+        <!-- ==========================================
+             VIEW 1: VOCABULARY EXPLORER (CARD LIST)
+             ========================================== -->
+        <div id="listView">
+            <section class="controls-card">
+                <div class="search-row">
+                    <div class="search-input-wrap">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="searchInput" class="search-input" placeholder="Search words, definitions, meanings or example sentences... (e.g. bond, analyse, urban)" oninput="handleSearch(this.value)">
+                    </div>
+                    <button class="btn" onclick="handleResetVocabulary()" title="Reset vocabulary to default 520 words">
+                        🔄 Reset Default List
+                    </button>
+                    <button class="btn btn-primary" onclick="window.print()" title="Print Study Guide">
+                        🖨️ Print / PDF
+                    </button>
+                </div>
+
+                <!-- Unit Filters -->
+                <div class="unit-filter-pills" id="unitFilterGroup">
+                    <button class="unit-pill active" onclick="setUnitFilter('ALL', this)">All Units</button>
+                    <button class="unit-pill" onclick="setUnitFilter('Unit 1', this)">Unit 1: Social &amp; Shopping</button>
+                    <button class="unit-pill" onclick="setUnitFilter('Unit 2', this)">Unit 2: Science &amp; DNA</button>
+                    <button class="unit-pill" onclick="setUnitFilter('Unit 3', this)">Unit 3: City Solutions</button>
+                    <button class="unit-pill" onclick="setUnitFilter('Unit 4', this)">Unit 4: Danger &amp; Planet</button>
+                    <button class="unit-pill" onclick="setUnitFilter('Unit 5', this)">Unit 5: Travel &amp; Business</button>
+                    <button class="unit-pill" onclick="setUnitFilter('Unit 6', this)">Unit 6: Product Design</button>
+                    <button class="unit-pill" onclick="setUnitFilter('Unit 7', this)">Unit 7: Global Challenges</button>
+                    <button class="unit-pill" onclick="setUnitFilter('Unit 8', this)">Unit 8: Medicine &amp; Health</button>
+                    <button class="unit-pill" onclick="setUnitFilter('Unit 9', this)">Unit 9: Language &amp; Culture</button>
+                    <button class="unit-pill" onclick="setUnitFilter('Unit 10', this)">Unit 10: Survival &amp; Emotions</button>
+                    <button class="unit-pill" onclick="setUnitFilter('Custom', this)">Custom Added</button>
+                </div>
+            </section>
+
+            <!-- Cards Grid Container -->
+            <main class="vocab-grid" id="vocabGrid">
+                <!-- Dynamically rendered via app.js -->
+            </main>
+        </div>
+
+        <!-- ==========================================
+             VIEW 2: DUOLINGO PRACTICE LAB (QUIZ MODE)
+             ========================================== -->
+        <div id="quizView" style="display: none;">
+            <!-- SCREEN 1: PRACTICE SETUP -->
+            <div id="quizSetupScreen" class="quiz-screen">
+                <div class="duo-banner-header">
+                    <div class="duo-mascot">🦉</div>
+                    <div class="duo-banner-text">
+                        <h2>LexiFlow Practice Lab</h2>
+                        <p>Master academic English words, meanings, derivatives, Longman definitions, and example sentences through interactive Duolingo-style drills.</p>
+                    </div>
+                </div>
+
+                <div class="setup-grid">
+                    <div class="setup-card">
+                        <div class="setup-card-title">📚 1. Target Unit</div>
+                        <select id="quizSetupUnitSelect" class="setup-select">
+                            <option value="ALL">All Units (Complete Lexicon)</option>
+                            <option value="Unit 1">Unit 1: Social &amp; Shopping</option>
+                            <option value="Unit 2">Unit 2: Science &amp; Investigation</option>
+                            <option value="Unit 3">Unit 3: City Solutions &amp; Transit</option>
+                            <option value="Unit 4">Unit 4: Danger Zones &amp; Planet</option>
+                            <option value="Unit 5">Unit 5: Travel &amp; Business</option>
+                            <option value="Unit 6">Unit 6: Product Design</option>
+                            <option value="Unit 7">Unit 7: Global Challenges</option>
+                            <option value="Unit 8">Unit 8: Medicine &amp; Innovations</option>
+                            <option value="Unit 9">Unit 9: Language &amp; Heritage</option>
+                            <option value="Unit 10">Unit 10: Survival &amp; Emotions</option>
+                            <option value="Custom">Custom User-Added Words</option>
+                        </select>
+                    </div>
+
+                    <div class="setup-card">
+                        <div class="setup-card-title">🎯 2. Question Variety</div>
+                        <select id="quizSetupTypeSelect" class="setup-select">
+                            <option value="mixed">🔀 Mixed Mode (Sentences, Derivatives, Audio, Images) [Recommended]</option>
+                            <option value="derivatives">🔤 Word Forms &amp; Derivatives (Noun/Verb/Adj Forms)</option>
+                            <option value="sentence">📝 Sentence Fill-in (Context Practice)</option>
+                            <option value="listening">🎧 Listening Drill (Spoken Pronunciation Practice)</option>
+                            <option value="image_match">🖼️ Visual Vocabulary (Image Matching)</option>
+                            <option value="def_to_word">📖 Longman Definition ➔ Word</option>
+                            <option value="word_to_def">🇬🇧 Word ➔ Longman Definition</option>
+                            <option value="meaning">🌐 Word ➔ Language Translation</option>
+                        </select>
+                    </div>
+
+                    <div class="setup-card">
+                        <div class="setup-card-title">⚡ 3. Session Length</div>
+                        <select id="quizSetupCountSelect" class="setup-select">
+                            <option value="10">10 Questions (Quick 2-min Drill)</option>
+                            <option value="20" selected>20 Questions (Standard 5-min Lesson)</option>
+                            <option value="50">50 Questions (Deep Dive Challenge)</option>
+                            <option value="all">Infinite / Complete Unit Pool</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="setup-actions">
+                    <button class="duo-btn duo-btn-primary duo-btn-lg" onclick="startQuizFromSetup()">
+                        🚀 Start Practice Session
+                    </button>
+                </div>
+
+                <div class="setup-stats-summary">
+                    <div class="setup-stat-pill">🔥 Active Streak: <strong id="setupStreakVal">0</strong></div>
+                    <div class="setup-stat-pill">🎯 Total Solved: <strong id="setupSolvedVal">0</strong></div>
+                    <div class="setup-stat-pill">📊 Accuracy Rate: <strong id="setupAccuracyVal">%0</strong></div>
+                    <div class="setup-stat-pill">⌨️ Shortcuts: <strong>Use keys 1-4, Enter, and Space</strong></div>
+                </div>
+            </div>
+
+            <!-- SCREEN 2: ACTIVE GAMEPLAY -->
+            <div id="quizPlayScreen" class="quiz-screen" style="display: none;">
+                <div class="quiz-top-bar">
+                    <button class="quiz-close-btn" onclick="confirmQuitQuiz()" title="Exit session">✕</button>
+                    <div class="duo-progress-container">
+                        <div id="quizProgressFill" class="duo-progress-fill"></div>
+                    </div>
+                    <div class="quiz-status-pill streak-pill" title="Current streak">
+                        🔥 <span id="quizStreakVal">0</span>
+                    </div>
+                    <div class="quiz-status-pill" id="quizCounterVal" title="Question progress">
+                        1 / 10
+                    </div>
+                    <button class="duo-icon-btn" onclick="AudioManager.toggleSound(); this.innerText = AudioManager.isSoundEnabled() ? '🔊' : '🔇';" title="Toggle Sound">
+                        🔊
+                    </button>
+                </div>
+
+                <div class="question-box">
+                    <div class="question-meta-row">
+                        <span id="questionTypeBadge" class="question-type-badge">Question Type</span>
+                        <span id="questionUnitTag" class="question-unit-tag">Unit 1 &bull; Reading 1</span>
+                    </div>
+
+                    <h2 id="questionInstruction" class="question-title">Question instruction text</h2>
+
+                    <div class="prompt-card" id="questionPromptCard">
+                        <!-- Dynamically populated -->
+                    </div>
+
+                    <div class="options-grid" id="quizOptionsGrid">
+                        <!-- 4 Interactive option cards -->
+                    </div>
+
+                    <div id="quizBottomSheet" class="duo-bottom-sheet state-default">
+                        <button class="duo-btn duo-btn-primary duo-btn-lg" id="quizCheckBtn" onclick="submitQuizAnswer()" disabled>
+                            CHECK
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCREEN 3: RESULTS SUMMARY -->
+            <div id="quizResultScreen" class="quiz-screen" style="display: none;">
+                <div class="results-box">
+                    <div class="results-trophy">🏆</div>
+                    <h2 id="resultsTitle">Session Completed!</h2>
+                    <p id="resultsSubtitle">Here is your academic vocabulary retention breakdown.</p>
+
+                    <div class="results-stat-grid">
+                        <div class="res-stat-card">
+                            <div class="res-stat-val" style="color: var(--duo-green);" id="resCorrectVal">0</div>
+                            <div class="res-stat-label">Correct</div>
+                        </div>
+                        <div class="res-stat-card">
+                            <div class="res-stat-val" style="color: var(--duo-red);" id="resWrongVal">0</div>
+                            <div class="res-stat-label">Mistakes</div>
+                        </div>
+                        <div class="res-stat-card">
+                            <div class="res-stat-val" style="color: var(--duo-blue);" id="resAccuracyVal">%0</div>
+                            <div class="res-stat-label">Accuracy Rate</div>
+                        </div>
+                        <div class="res-stat-card">
+                            <div class="res-stat-val" style="color: #ea580c;" id="resBestStreakVal">🔥 0</div>
+                            <div class="res-stat-label">Best Streak</div>
+                        </div>
+                    </div>
+
+                    <div class="results-word-list-box">
+                        <div class="results-word-list-header">
+                            <span>Words Encountered in this Session</span>
+                            <span id="resTotalBadge">10 Words</span>
+                        </div>
+                        <div id="resWordsContainer">
+                            <!-- Items list -->
+                        </div>
+                    </div>
+
+                    <div class="results-actions">
+                        <button class="duo-btn duo-btn-danger duo-btn-md" id="repeatMistakesBtn" onclick="handleRepeatMistakes()" style="display: none;">
+                            🔁 Practice Mistakes Only (<span id="mistakeCountSpan">0</span>)
+                        </button>
+                        <button class="duo-btn duo-btn-primary duo-btn-md" onclick="showQuizSetupScreen()">
+                            🚀 New Practice Session
+                        </button>
+                        <button class="duo-btn duo-btn-secondary duo-btn-md" onclick="switchMode('list')">
+                            📚 Back to Vocabulary
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+         ADD NEW WORD MODAL DIALOG
+         ========================================== -->
+    <div class="modal-overlay" id="addWordModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2>➕ Add New Vocabulary Word</h2>
+                <button class="modal-close-btn" id="closeAddWordBtn">✕</button>
+            </div>
+
+            <form id="addWordForm">
+                <!-- Auto-Lookup Toolbar -->
+                <div class="auto-fetch-box">
+                    <div class="auto-fetch-info">
+                        <strong>Smart Dictionary Assistant:</strong>
+                        <div>Type a word below and click auto-fetch to automatically pull definitions, examples, and translations.</div>
+                    </div>
+                    <button type="button" class="btn btn-accent" id="autoFetchBtn">
+                        🔍 Auto-Fetch Dictionary
+                    </button>
+                </div>
+
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label class="form-label">English Word *</label>
+                        <input type="text" id="newWordInput" class="form-input" placeholder="e.g. innovate, resilient" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Part of Speech</label>
+                        <select id="newWordPos" class="form-select">
+                            <option value="(n)">Noun (n)</option>
+                            <option value="(v)">Verb (v)</option>
+                            <option value="(adj)">Adjective (adj)</option>
+                            <option value="(adv)">Adverb (adv)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label class="form-label">Assign to Unit</label>
+                        <select id="newWordUnit" class="form-select">
+                            <option value="Custom">Custom / General</option>
+                            <option value="Unit 1">Unit 1: Social &amp; Shopping</option>
+                            <option value="Unit 2">Unit 2: Science &amp; Investigation</option>
+                            <option value="Unit 3">Unit 3: City Solutions</option>
+                            <option value="Unit 4">Unit 4: Danger Zones</option>
+                            <option value="Unit 5">Unit 5: Travel &amp; Business</option>
+                            <option value="Unit 6">Unit 6: Product Design</option>
+                            <option value="Unit 7">Unit 7: Global Challenges</option>
+                            <option value="Unit 8">Unit 8: Medicine &amp; Health</option>
+                            <option value="Unit 9">Unit 9: Language &amp; Culture</option>
+                            <option value="Unit 10">Unit 10: Survival &amp; Emotions</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Meaning / Translation</label>
+                        <input type="text" id="newWordTr" class="form-input" placeholder="Meaning in target language">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">English Definition</label>
+                    <textarea id="newWordDef" class="form-textarea" rows="2" placeholder="Academic English definition..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Example Sentence</label>
+                    <textarea id="newWordExample" class="form-textarea" rows="2" placeholder="Contextual academic example sentence using the word..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Derivatives / Other Word Forms (Comma-separated)</label>
+                    <input type="text" id="newWordDeriv" class="form-input" placeholder="e.g. n: innovation, adj: innovative, adv: innovatively">
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn" id="cancelAddWordBtn">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save to Vocabulary</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modular Script Imports -->
+    <script src="js/default-data.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/dictionary-api.js"></script>
+    <script src="js/speech.js"></script>
+    <script src="js/quiz-engine.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
