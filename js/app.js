@@ -104,6 +104,7 @@ function switchMode(mode) {
         tabQuiz.classList.remove('active');
         listView.style.display = 'block';
         quizView.style.display = 'none';
+        document.body.classList.remove('quiz-playing');
         renderVocabularyGrid();
     } else {
         tabList.classList.remove('active');
@@ -450,11 +451,26 @@ function initAddWordModal() {
 
     function openModal() {
         modal.classList.add('active');
-        document.getElementById('newWordInput').focus();
+        document.body.classList.add('modal-open');
+        // Do not pop the on-screen keyboard open on touch devices
+        if (!window.matchMedia('(pointer: coarse)').matches) {
+            document.getElementById('newWordInput').focus();
+        }
     }
 
     function closeModal() {
         modal.classList.remove('active');
+        document.body.classList.remove('modal-open');
+    }
+
+    // Tap on the dimmed backdrop or press Escape to close
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('active')) closeModal();
+        });
     }
 }
 
@@ -512,6 +528,7 @@ function showToast(message) {
  * DUOLINGO PRACTICE LAB CONTROLLER
  */
 function showQuizSetupScreen() {
+    document.body.classList.remove('quiz-playing');
     document.getElementById('quizSetupScreen').style.display = 'block';
     document.getElementById('quizPlayScreen').style.display = 'none';
     document.getElementById('quizResultScreen').style.display = 'none';
@@ -532,6 +549,7 @@ function startQuizFromSetup() {
     document.getElementById('quizSetupScreen').style.display = 'none';
     document.getElementById('quizResultScreen').style.display = 'none';
     document.getElementById('quizPlayScreen').style.display = 'block';
+    document.body.classList.add('quiz-playing');
 
     renderQuizQuestion();
 }
@@ -586,6 +604,12 @@ async function renderQuizQuestion() {
             CHECK
         </button>
     `;
+
+    // On phones a new question can be shorter than the previous one: start at its top
+    if (window.matchMedia('(max-width: 639px)').matches) {
+        const playScreen = document.getElementById('quizPlayScreen');
+        if (playScreen) playScreen.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
 
     // Auto-play audio if applicable
     if (qData.audioAutoPlay && AudioManager.isSoundEnabled()) {
@@ -684,6 +708,7 @@ function advanceNextQuizQuestion() {
 
 function showQuizResultsScreen() {
     AudioManager.playSound('fanfare');
+    document.body.classList.remove('quiz-playing');
     document.getElementById('quizPlayScreen').style.display = 'none';
     document.getElementById('quizResultScreen').style.display = 'block';
 
@@ -748,6 +773,7 @@ function handleRepeatMistakes() {
     QuizEngine.startSession({ overrideWords: res.mistakes });
     document.getElementById('quizResultScreen').style.display = 'none';
     document.getElementById('quizPlayScreen').style.display = 'block';
+    document.body.classList.add('quiz-playing');
     renderQuizQuestion();
 }
 
